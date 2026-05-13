@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>i_ckam — facecontrol</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0f;
+      --panel: #111118;
+      --border: #1e1e2e;
+      --accent: #00dc82;
+      --red: #ff4d6d;
+      --text: #e2e2e8;
+      --muted: #5a5a72;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 44px 1fr;
+      grid-template-columns: 1fr 260px;
+      gap: 1px;
+      background-color: var(--border);
+    }
+
+    header {
+      grid-column: 1 / -1;
+      background: var(--panel);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    header .logo { font-size: 16px; letter-spacing: 3px; color: var(--accent); }
+    header .sub  { color: var(--muted); font-size: 11px; }
+
+    #status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted); margin-left: auto;
+      transition: background 0.3s;
+    }
+    #status-dot.live { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    #status-dot.error { background: var(--red); }
+
+    #status-label { font-size: 11px; color: var(--muted); }
+
+    /* ── Main feed ─────────────────────────────────────────────────────────── */
+    #feed-panel {
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #feed {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    #overlay {
+      position: absolute;
+      top: 12px; left: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      pointer-events: none;
+    }
+
+    .badge {
+      background: rgba(0,0,0,0.65);
+      border: 1px solid var(--border);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    #connect-btn {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 8px 28px;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 12px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      font-weight: 600;
+    }
+    #connect-btn:hover { opacity: 0.85; }
+    #connect-btn.hidden { display: none; }
+
+    /* ── Right panel ───────────────────────────────────────────────────────── */
+    #right {
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .section {
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px;
+    }
+
+    .section-title {
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    /* face log */
+    #face-log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    #face-log::-webkit-scrollbar { width: 4px; }
+    #face-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .log-entry {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 6px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .log-entry .name { color: var(--text); flex: 1; }
+    .log-entry .time { color: var(--muted); font-size: 10px; }
+
+    .tag {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 3px;
+      font-weight: 600;
+    }
+    .tag.ok  { background: rgba(0,220,130,.15); color: var(--accent); border: 1px solid rgba(0,220,130,.3); }
+    .tag.no  { background: rgba(255,77,109,.15); color: var(--red);    border: 1px solid rgba(255,77,109,.3); }
+    .tag.unk { background: rgba(90,90,114,.15);  color: var(--muted);  border: 1px solid var(--border); }
+
+    /* face count indicator */
+    #face-count {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1;
+    }
+    #face-count-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+    /* quick action buttons */
+    .action-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 6px 0;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 11px;
+      cursor: pointer;
+      letter-spacing: 1px;
+    }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn.deny:hover { border-color: var(--red); color: var(--red); }
+
+    /* esp URL input */
+    #esp-url {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 5px 8px;
+      border-radius: 4px;
+      outline: none;
+    }
+    #esp-url:focus { border-color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">i_ckam</span>
+  <span class="sub">digital facecontrol</span>
+  <div id="status-dot"></div>
+  <span id="status-label">disconnected</span>
+</header>
+
+<div id="feed-panel">
+  <video id="feed" autoplay playsinline muted></video>
+
+  <div id="overlay">
+    <div class="badge" id="res-badge">—</div>
+    <div class="badge" id="fps-badge">— fps</div>
+  </div>
+
+  <button id="connect-btn" onclick="startWebRTC()">CONNECT</button>
+</div>
+
+<div id="right">
+  <div class="section">
+    <div class="section-title">Faces detected</div>
+    <div id="face-count">0</div>
+    <div id="face-count-label">in frame</div>
+    <div class="action-row">
+      <button class="btn" onclick="logFace('allow')">ALLOW</button>
+      <button class="btn deny" onclick="logFace('deny')">DENY</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">ESP stream URL</div>
+    <input id="esp-url" value="http://192.168.88.XXX:81/stream" spellcheck="false">
+  </div>
+
+  <div class="section-title" style="padding: 10px 16px 4px; font-size:10px; letter-spacing:2px; color:var(--muted); text-transform:uppercase;">
+    Event log
+  </div>
+  <div id="face-log"></div>
+</div>
+
+<script>
+  let pc = null;
+  let faceCount = 0;
+  let frameCount = 0;
+  let lastFpsTime = Date.now();
+
+  const statusDot   = document.getElementById('status-dot');
+  const statusLabel = document.getElementById('status-label');
+  const connectBtn  = document.getElementById('connect-btn');
+  const faceCountEl = document.getElementById('face-count');
+  const faceLog     = document.getElementById('face-log');
+  const fpsBadge    = document.getElementById('fps-badge');
+  const resBadge    = document.getElementById('res-badge');
+  const feed        = document.getElementById('feed');
+
+  function setStatus(state, label) {
+    statusDot.className = state;
+    statusLabel.textContent = label;
+  }
+
+  async function startWebRTC() {
+    connectBtn.classList.add('hidden');
+    setStatus('', 'connecting…');
+
+    pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
+    pc.ontrack = (ev) => {
+      if (ev.track.kind === 'video') {
+        feed.srcObject = ev.streams[0];
+        setStatus('live', 'live');
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (['failed','disconnected','closed'].includes(pc.iceConnectionState)) {
+        setStatus('error', pc.iceConnectionState);
+        connectBtn.classList.remove('hidden');
+      }
+    };
+
+    pc.addTransceiver('video', { direction: 'recvonly' });
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    const res = await fetch('/rtc/offer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sdp: offer.sdp, type: offer.type }),
+    });
+    const answer = await res.json();
+    await pc.setRemoteDescription(answer);
+  }
+
+  // FPS counter
+  feed.addEventListener('timeupdate', () => {
+    frameCount++;
+    const now = Date.now();
+    if (now - lastFpsTime >= 1000) {
+      fpsBadge.textContent = frameCount + ' fps';
+      frameCount = 0;
+      lastFpsTime = now;
+    }
+  });
+
+  feed.addEventListener('loadedmetadata', () => {
+    resBadge.textContent = feed.videoWidth + '×' + feed.videoHeight;
+  });
+
+  // WebSocket for face events
+  function connectEvents() {
+    const ws = new WebSocket('ws://' + location.host + '/ws/events');
+    ws.onmessage = (ev) => {
+      const data = JSON.parse(ev.data);
+      faceCount = data.faces ? data.faces.length : 0;
+      faceCountEl.textContent = faceCount;
+    };
+    ws.onclose = () => setTimeout(connectEvents, 2000);
+  }
+  connectEvents();
+
+  function logFace(action) {
+    if (faceCount === 0) return;
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    const t = new Date().toTimeString().slice(0, 8);
+    entry.innerHTML = `
+      <span class="name">UNKNOWN</span>
+      <span class="tag ${action === 'allow' ? 'ok' : 'no'}">${action.toUpperCase()}</span>
+      <span class="time">${t}</span>
+    `;
+    faceLog.prepend(entry);
+  }
+</script>
+</body>
+</html>
