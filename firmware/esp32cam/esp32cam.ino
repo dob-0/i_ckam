@@ -4,10 +4,13 @@
 #include "esp_camera.h"
 #include <WiFi.h>
 #include "esp_http_server.h"
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 
-// ── WiFi credentials ──────────────────────────────────────────────────────────
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
+// ── AP hotspot config (ESP32-CAM creates its own network) ─────────────────────
+const char* AP_SSID = "i_ckam";
+const char* AP_PASS = "ickam2024";  // min 8 chars for WPA2
+// Camera IP will be 192.168.4.1
 
 // ── AI Thinker ESP32-CAM pin map ──────────────────────────────────────────────
 #define PWDN_GPIO_NUM  32
@@ -118,6 +121,7 @@ void startServers() {
 }
 
 void setup() {
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // disable brownout — ESP32-CAM needs this when powered via USB FT232
   Serial.begin(115200);
 
   // Camera init
@@ -142,7 +146,7 @@ void setup() {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
-  config.frame_size   = FRAMESIZE_VGA;   // 640x480
+  config.frame_size   = FRAMESIZE_HD;    // 1280x720
   config.jpeg_quality = 12;              // 0=best, 63=worst
   config.fb_count     = 2;
 
@@ -156,16 +160,17 @@ void setup() {
   s->set_vflip(s, 0);
   s->set_hmirror(s, 0);
 
-  // WiFi connect
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.print("Connecting");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nConnected! IP: " + WiFi.localIP().toString());
-  Serial.println("Stream:   http://" + WiFi.localIP().toString() + ":81/stream");
-  Serial.println("Snapshot: http://" + WiFi.localIP().toString() + "/capture");
+  // Start as Access Point — no router needed, works standalone at events
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(AP_SSID, AP_PASS);
+  delay(500); // give AP time to settle
+
+  IPAddress ip = WiFi.softAPIP();
+  Serial.println("AP started!");
+  Serial.println("Connect your laptop to WiFi: " + String(AP_SSID));
+  Serial.println("Password: " + String(AP_PASS));
+  Serial.println("Stream:   http://" + ip.toString() + ":81/stream");
+  Serial.println("Snapshot: http://" + ip.toString() + "/capture");
 
   startServers();
 }
