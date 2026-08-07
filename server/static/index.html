@@ -244,7 +244,9 @@
 
   <div class="section">
     <div class="section-title">ESP stream URL</div>
-    <input id="esp-url" value="http://192.168.88.XXX:81/stream" spellcheck="false">
+    <input id="esp-url" value="" spellcheck="false">
+    <button class="btn" id="apply-url-btn" style="margin-top:8px;width:100%" onclick="applyUrl()">APPLY</button>
+    <div id="url-status" style="font-size:10px;color:var(--muted);margin-top:5px;min-height:14px"></div>
   </div>
 
   <div class="section-title" style="padding: 10px 16px 4px; font-size:10px; letter-spacing:2px; color:var(--muted); text-transform:uppercase;">
@@ -335,6 +337,39 @@
     ws.onclose = () => setTimeout(connectEvents, 2000);
   }
   connectEvents();
+
+  async function loadConfig() {
+    const res = await fetch('/api/config');
+    const cfg = await res.json();
+    document.getElementById('esp-url').value = cfg.esp_url;
+  }
+
+  async function applyUrl() {
+    const url = document.getElementById('esp-url').value.trim();
+    const statusEl = document.getElementById('url-status');
+    statusEl.style.color = 'var(--muted)';
+    statusEl.textContent = 'applying…';
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ esp_url: url }),
+      });
+      const cfg = await res.json();
+      statusEl.style.color = 'var(--accent)';
+      statusEl.textContent = 'updated';
+      setTimeout(() => statusEl.textContent = '', 2000);
+    } catch (e) {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'error';
+    }
+  }
+
+  document.getElementById('esp-url').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') applyUrl();
+  });
+
+  loadConfig();
 
   function logFace(action) {
     if (faceCount === 0) return;

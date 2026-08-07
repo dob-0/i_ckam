@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -43,27 +44,82 @@ def save_face_db(db):
 
 # ── MJPEG reader ──────────────────────────────────────────────────────────────
 class MJPEGReader:
+    """Captures MJPEG frames in a background thread so WebRTC recv() never blocks."""
+
     def __init__(self, url: str):
         self.url = url
-        self._cap = None
+        self._frame = None
+        self._lock = threading.Lock()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
 
-    def _open(self):
-        self._cap = cv2.VideoCapture(self.url)
-        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    def _loop(self):
+        while True:
+            url = self.url
+            log.info("Camera connecting: %s", url)
+
+            # Probe: check Content-Type to decide stream vs snapshot polling
+            mode = self._probe(url)
+            if mode == "snapshot":
+                self._poll_snapshots(url)
+            else:
+                self._read_mjpeg(url)
+
+            if self.url != url:
+                with self._lock:
+                    self._frame = None
+            else:
+                time.sleep(2)
+
+    def _probe(self, url):
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=4) as r:
+                ct = r.headers.get("Content-Type", "")
+                return "snapshot" if "image/jpeg" in ct else "mjpeg"
+        except Exception:
+            return "mjpeg"  # let VideoCapture try
+
+    def _read_mjpeg(self, url):
+        cap = cv2.VideoCapture()
+        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+        cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
+        cap.open(url)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        while self.url == url:
+            ret, frame = cap.read()
+            if not ret:
+                log.warning("Frame read failed, reconnecting…")
+                break
+            with self._lock:
+                self._frame = frame
+        cap.release()
+
+    def _poll_snapshots(self, url):
+        log.info("Snapshot polling mode: %s", url)
+        while self.url == url:
+            try:
+                with urllib.request.urlopen(url, timeout=3) as r:
+                    data = r.read()
+                arr = np.frombuffer(data, dtype=np.uint8)
+                frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                if frame is not None:
+                    with self._lock:
+                        self._frame = frame
+            except Exception as e:
+                log.warning("Snapshot fetch failed: %s", e)
+                time.sleep(1)
+            time.sleep(0.04)  # ~25 fps
 
     def read(self):
-        if self._cap is None or not self._cap.isOpened():
-            self._open()
-        ret, frame = self._cap.read()
-        if not ret:
-            log.warning("Frame read failed, reconnecting…")
-            self._open()
-            ret, frame = self._cap.read()
-        return ret, frame
+        with self._lock:
+            if self._frame is not None:
+                return True, self._frame.copy()
+        return False, None
 
     def release(self):
-        if self._cap:
-            self._cap.release()
+        with self._lock:
+            self._frame = None
 
 # ── WebRTC video track with face detection ────────────────────────────────────
 class FaceControlTrack(VideoStreamTrack):
@@ -102,9 +158,7 @@ class FaceControlTrack(VideoStreamTrack):
     async def recv(self):
         pts, time_base = await self.next_timestamp()
 
-        ret, frame = await asyncio.get_event_loop().run_in_executor(
-            None, self.reader.read
-        )
+        ret, frame = self.reader.read()
 
         if ret and frame is not None:
             frame = self._detect_and_draw(frame)
@@ -179,6 +233,20 @@ async def events_ws(ws: WebSocket):
 @app.get("/api/faces")
 def get_faces():
     return load_face_db()
+
+class ConfigUpdate(BaseModel):
+    esp_url: str
+
+@app.get("/api/config")
+def get_config():
+    return {"esp_url": mjpeg_reader.url}
+
+@app.post("/api/config")
+def set_config(cfg: ConfigUpdate):
+    mjpeg_reader.url = cfg.esp_url.strip()
+    mjpeg_reader.release()
+    log.info("ESP stream URL updated: %s", mjpeg_reader.url)
+    return {"esp_url": mjpeg_reader.url}
 
 class FaceEntry(BaseModel):
     name: str
